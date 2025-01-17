@@ -12,7 +12,7 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss, ssim
+from utils.loss_utils import l1_loss, ssim, norm_l1_loss, get_expon_lr_func
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -20,6 +20,7 @@ from utils.general_utils import safe_state
 import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr
+from matplotlib import pyplot as plt
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 try:
@@ -48,7 +49,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-    for iteration in range(first_iter, opt.iterations + 1):        
+
+    depth_l1_weight = get_expon_lr_func(1.0, 0.01, max_steps=opt.iterations)
+
+    # FOR PLOTTING
+    iterations = []
+    losses = []
+    l1_losses = []
+    depth_losses = []
+    
+    for iteration in range(first_iter, opt.iterations + 1):       
         if network_gui.conn == None:
             network_gui.try_connect()
         while network_gui.conn != None:
@@ -90,7 +100,26 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+
+        # Depth regularization
+        Ll1depth_pure = 0.0
+        if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_map is not None:
+            gt_depth_map = viewpoint_cam.depth_map
+            gt_depth_map_single_channel = gt_depth_map.to(torch.float32).mean(dim=-1)
+            predicted_depth_map = gaussians.generate_predicted_depth_map(visibility_filter, viewpoint_cam, gt_depth_map_single_channel, save=(True if iteration > 20000 else False))
+            Ll1depth_pure = norm_l1_loss(predicted_depth_map, gt_depth_map_single_channel, path=(f"logs/2d_losses/predicted_{viewpoint_cam.image_name}" if iteration > 20000 else None))
+            Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure
+            loss += Ll1depth
+            Ll1depth = Ll1depth.item()
+        else:
+            Ll1depth = 0
+
         loss.backward()
+
+        iterations.append(iteration)
+        losses.append(loss.item())
+        l1_losses.append(Ll1.item())
+        depth_losses.append(Ll1depth_pure.item())
 
         iter_end.record()
 
@@ -107,6 +136,15 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
+                plt.figure(figsize=(10, 6))
+                plt.plot(iterations, losses, label='Total Loss')
+                plt.plot(iterations, l1_losses, label='L1 Loss')
+                plt.plot(iterations, depth_losses, label='Depth Loss')
+                plt.xlabel('Iterations')
+                plt.ylabel('Loss')
+                plt.title('Losses Over Iterations')
+                plt.legend()
+                plt.savefig(os.path.join(args.model_path, 'logs/losses.png'))
                 scene.save(iteration)
 
             # Densification

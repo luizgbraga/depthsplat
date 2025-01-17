@@ -19,7 +19,10 @@ from plyfile import PlyData, PlyElement
 from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
+from pytorch3d.transforms import quaternion_apply
 from utils.general_utils import strip_symmetric, build_scaling_rotation
+from utils.camera_utils import Camera
+import cv2
 
 class GaussianModel:
 
@@ -405,3 +408,67 @@ class GaussianModel:
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
+    
+    def compute_visible_sampled_point_cloud(self, n_samples=50000):
+        gaussians_positions_w = self.get_xyz
+        means = gaussians_positions_w
+        rotations = self.get_rotation    
+        scales = self.get_scaling
+        # opacities = self.get_opacity
+        M, _ = means.shape
+        
+        random_indices = torch.randint(low=0, high=M, size=(n_samples,))
+
+        sampled_means = means[random_indices]
+        sampled_quads = rotations[random_indices]
+        sampled_scales = scales[random_indices]
+        # sampled_opacities = opacities[random_indices]
+        
+        sampling_scale_factor = 0.05
+        sampled_points = sampled_means + quaternion_apply(
+            sampled_quads, 
+            sampling_scale_factor * sampled_scales * torch.randn_like(sampled_means)
+        )
+
+        return sampled_points
+
+    def generate_predicted_depth_map(self, visibility_filter, camera: Camera, gt_depth_map, save=False):
+        visible_gaussians_positions_w = self.compute_visible_sampled_point_cloud()
+        visible_gaussians_positions_cam = camera.world_to_camera_coords(visible_gaussians_positions_w)
+        predicted_depths = visible_gaussians_positions_cam[:, 2]
+
+        projected_positions = camera.camera_matrix @ visible_gaussians_positions_cam.T
+
+        pixel_coords = (projected_positions[:2] / projected_positions[2]).T
+        pixel_coords_rounded = torch.round(pixel_coords).long()
+        px, py = pixel_coords_rounded[:, 0], pixel_coords_rounded[:, 1]
+        valid_mask = (px >= 1) & (px <= camera.image_width - 1) & (py >= 1) & (py <= camera.image_height - 1)
+        px, py, predicted_depths = px[valid_mask], py[valid_mask], predicted_depths[valid_mask]
+        
+        depth_map = torch.full((camera.image_height, camera.image_width), float('inf'), device=pixel_coords.device)
+
+        valid_indices = py * camera.image_width + px
+        depth_map_flat = depth_map.view(-1)
+
+        depth_map_flat.index_put_((valid_indices,), predicted_depths, accumulate=False)
+
+        visualized_depth_map = depth_map.clone()
+        depth_map[torch.isinf(depth_map)] = 0.0
+        finite_depths = depth_map[torch.isfinite(depth_map)]
+
+        if finite_depths.numel() > 0:
+            max_finite_depth = finite_depths.max()
+            visualized_depth_map[~torch.isfinite(visualized_depth_map)] = max_finite_depth
+        else:
+            raise ValueError("All depths are infinite. Check the camera's view and projection matrices.")
+        
+        normalized_depth_map = (visualized_depth_map / visualized_depth_map.max() * 255).nan_to_num(0).clamp(0, 255).byte()
+        gt = gt_depth_map.clone()
+        gt[depth_map == 0] = 0.0
+
+        if save:
+            cv2.imwrite(f"logs/predicted_depth_maps/{camera.image_name}.png", normalized_depth_map.cpu().numpy())
+            cv2.imwrite(f"logs/gt_depth_maps/{camera.image_name}_gt.png", 255 - gt.cpu().numpy())
+            
+        return depth_map.cpu()
+    

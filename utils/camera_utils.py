@@ -9,6 +9,9 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import cv2
+import torch
+import os
 from scene.cameras import Camera
 import numpy as np
 from utils.general_utils import PILtoTorch
@@ -46,10 +49,19 @@ def loadCam(args, id, cam_info, resolution_scale):
     if resized_image_rgb.shape[1] == 4:
         loaded_mask = resized_image_rgb[3:4, ...]
 
+    depth_map = None
+    if args.depths_path:
+        depth_map = cv2.imread(os.path.join(args.depths_path, f'{cam_info.image_name}.png'), cv2.IMREAD_UNCHANGED)
+        if depth_map is not None:
+            depth_map = torch.from_numpy(depth_map)
+        else:
+            print(f"[ WARNING ] Could not load depth map for {cam_info.image_name}.png, skipping depth map loading.")
+
     return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY, 
                   image=gt_image, gt_alpha_mask=loaded_mask,
-                  image_name=cam_info.image_name, uid=id, data_device=args.data_device)
+                  image_name=cam_info.image_name, uid=id, 
+                  data_device=args.data_device, depth_map=depth_map)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []
