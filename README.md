@@ -13,10 +13,10 @@ The most direct solution to this problem is to incorporate depth information dur
 
 Similar to how the original Gaussian Splatting implementation rasterizes the current Gaussian state to produce a predicted RGB image (used to compute the photometric loss against the ground truth image), we extended this idea to compute a depth loss. Specifically, we used ground truth depth maps from DepthAnythingV2 and devised a method to predict depth maps from the Gaussian state.
 
-To compute the predicted depth map, we sampled points within each Gaussian, following its distribution parameters (i.e., considering the means, rotations, and scalings). These sampled points were projected into the camera's viewpoint, with the depth represented by the z-axis value in the camera coordinate system. This process generated a sparse predicted depth map, which was then compared with the ground truth depth map on overlapping points. The resulting differences were used to calculate the depth loss, guiding the optimization process.
+To compute the predicted depth map, we sampled points within each Gaussian, following its distribution parameters (i.e., considering the means, rotations, and scalings). These sampled points were projected into the camera's viewpoint, with the depth represented by the z-axis value in the camera coordinate system. This process generated a sparse predicted depth map, which was then compared with the ground truth depth map on overlapping points. The resulting differences were used to calculate the depth loss, guiding the optimization process. As a comparison of predicted and ground truth depth maps:
 
-![alt text](image-2.png)
-![alt text](image-1.png)
+<img src="image-2.png" alt="Image 2" width="100px">
+<img src="image-1.png" alt="Image 1" width="100px">
 
 ## Acknowledgements
 This is an adaptation of the original implementation of [Gaussian Splatting](https://github.com/graphdeco-inria/gaussian-splatting) using [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2) to depth maps. We thank the original authors for their excellent work.
