@@ -15,8 +15,10 @@ Similar to how the original Gaussian Splatting implementation rasterizes the cur
 
 To compute the predicted depth map, we sampled points within each Gaussian, following its distribution parameters (i.e., considering the means, rotations, and scalings). These sampled points were projected into the camera's viewpoint, with the depth represented by the z-axis value in the camera coordinate system. This process generated a sparse predicted depth map, which was then compared with the ground truth depth map on overlapping points. The resulting differences were used to calculate the depth loss, guiding the optimization process. As a comparison of predicted and ground truth depth maps:
 
-<img src="image-2.png" alt="Image 2" width="100px">
-<img src="image-1.png" alt="Image 1" width="100px">
+<p align="center">
+  <img src="image-2.png" alt="Image 2" width="400px">
+  <img src="image-1.png" alt="Image 1" width="400px">
+</p>
 
 ## Acknowledgements
 This is an adaptation of the original implementation of [Gaussian Splatting](https://github.com/graphdeco-inria/gaussian-splatting) using [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2) to depth maps. We thank the original authors for their excellent work.
