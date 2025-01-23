@@ -29,6 +29,9 @@ def norm_l1_loss(network_output, gt, path=None):
     gt = 1 - normalize(gt, valid_mask)
     network_output = normalize(network_output, valid_mask)
     network_output[~valid_mask] = gt[~valid_mask]
+    network_output[gt < 1] = gt[gt < 1]
+
+    number_of_differs = (network_output != gt).sum()
 
     loss = torch.abs(network_output - gt)
 
@@ -44,7 +47,7 @@ def norm_l1_loss(network_output, gt, path=None):
         plt.savefig(path)
         plt.close()
 
-    return loss.sum() / valid_mask.sum()
+    return loss.sum() / number_of_differs
 
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
