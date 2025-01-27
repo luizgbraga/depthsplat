@@ -409,30 +409,22 @@ class GaussianModel:
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
     
-    def compute_visible_sampled_point_cloud(self, n_samples=50000):
-        gaussians_positions_w = self.get_xyz
-        means = gaussians_positions_w
-        rotations = self.get_rotation    
-        scales = self.get_scaling
-        # opacities = self.get_opacity
-        M, _ = means.shape
-        
-        random_indices = torch.randint(low=0, high=M, size=(n_samples,))
+    def compute_visible_sampled_point_cloud(self, num_samples_per_gaussian=5):
+        device = self.get_xyz.device
+        means = self.get_xyz.to(device).unsqueeze(1)
+        rotations = self.get_rotation.to(device).unsqueeze(1)
+        scales = self.get_scaling.to(device).unsqueeze(1)
 
-        sampled_means = means[random_indices]
-        sampled_quads = rotations[random_indices]
-        sampled_scales = scales[random_indices]
-        # sampled_opacities = opacities[random_indices]
-        
-        sampling_scale_factor = 0.05
-        sampled_points = sampled_means + quaternion_apply(
-            sampled_quads, 
-            sampling_scale_factor * sampled_scales * torch.randn_like(sampled_means)
-        )
+        sampling_scale_factor = 0.01
+
+        noise = sampling_scale_factor * scales * torch.randn(means.size(0), num_samples_per_gaussian, means.size(2), device=device)
+        rotated_noise = quaternion_apply(rotations.expand(-1, num_samples_per_gaussian, -1), noise)
+        sampled_points = means + rotated_noise
+        sampled_points = sampled_points.view(-1, 3)
 
         return sampled_points
 
-    def generate_predicted_depth_map(self, visibility_filter, camera: Camera, gt_depth_map, save=False):
+    def generate_predicted_depth_map(self, camera: Camera, gt_depth_map, save=False):
         visible_gaussians_positions_w = self.compute_visible_sampled_point_cloud()
         visible_gaussians_positions_cam = camera.world_to_camera_coords(visible_gaussians_positions_w)
         predicted_depths = visible_gaussians_positions_cam[:, 2]
