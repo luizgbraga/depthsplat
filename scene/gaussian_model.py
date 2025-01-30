@@ -423,6 +423,31 @@ class GaussianModel:
         sampled_points = sampled_points.view(-1, 3)
 
         return sampled_points
+    
+    def prune_gaussians_by_depth(self, camera: Camera, max_depth_diff=0.1):
+        N = self.get_xyz.shape[0]
+        device = self.get_xyz.device
+        total_depth = torch.zeros(N, device=device)
+        count = torch.zeros(N, device=device)
+
+        xyz_w = self.get_xyz
+        xyz_c = camera.world_to_camera_coords(xyz_w)
+        predicted_depths = xyz_c[:, 2]
+        projected_positions = camera.camera_matrix @ xyz_c.T
+        pixel_coords = (projected_positions[:2] / projected_positions[2]).T
+        depths = camera.get_depths_from_depth_map(pixel_coords)  # [N]
+
+        normalized_predicted_depths = (predicted_depths - predicted_depths.min()) / (predicted_depths.max() - predicted_depths.min())
+        normalized_depths = (depths - depths.min()) / (depths.max() - depths.min())
+
+        # depths may contain NaNs for points outside the image
+        valid_mask = ~torch.isnan(depths)
+        prune_depth_mask = torch.abs(normalized_predicted_depths - normalized_depths) > max_depth_diff
+
+        print(f"Pruning {prune_depth_mask.sum()} points out of {N} due to depth difference.")
+        
+        self.prune_points(prune_depth_mask)
+
 
     def generate_predicted_depth_map(self, camera: Camera, gt_depth_map, save=False):
         visible_gaussians_positions_w = self.compute_visible_sampled_point_cloud()

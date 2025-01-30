@@ -164,6 +164,44 @@ class Camera(nn.Module):
         batched_point_cloud = point_cloud.view(batch_size, points_per_batch, 3)
 
         return batched_point_cloud.to('cuda')
+    
+
+    def get_depths_from_depth_map(self, pixel_coords):
+        """
+        Fetches depth values from the depth map at the given pixel coordinates using bilinear interpolation.
+        """
+        x_coords = pixel_coords[:, 0]
+        y_coords = pixel_coords[:, 1]
+        depth_map = self.depth_map.to(torch.float32).mean(dim=-1)
+        H, W = depth_map.shape
+
+        # Compute integer coordinates
+        x0 = torch.clamp(x_coords.floor().long(), 0, W - 1)
+        x1 = torch.clamp(x0 + 1, 0, W - 1)
+        y0 = torch.clamp(y_coords.floor().long(), 0, H - 1)
+        y1 = torch.clamp(y0 + 1, 0, H - 1)
+
+        # Compute fractional parts
+        x_frac = x_coords - x_coords.floor()
+        y_frac = y_coords - y_coords.floor()
+
+        # Move depth_map and related tensors to the same device as pixel_coords
+        device = pixel_coords.device
+        depth_map = depth_map.to(device)
+
+        # Get depth values at corner points
+        Ia = depth_map[y0, x0]
+        Ib = depth_map[y1, x0]
+        Ic = depth_map[y0, x1]
+        Id = depth_map[y1, x1]
+
+        # Compute bilinear interpolation
+        depths = Ia * (1 - x_frac) * (1 - y_frac) + \
+                Ib * (1 - x_frac) * y_frac + \
+                Ic * x_frac * (1 - y_frac) + \
+                Id * x_frac * y_frac
+
+        return depths
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):
